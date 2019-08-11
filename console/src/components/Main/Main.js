@@ -4,91 +4,104 @@ import { Link } from 'react-router';
 import OverlayTrigger from 'react-bootstrap/lib/OverlayTrigger';
 import globals from '../../Globals';
 import * as tooltip from './Tooltips';
-import 'react-toggle/style.css';
 import Spinner from '../Common/Spinner/Spinner';
-import { loadServerVersion, checkServerUpdates } from './Actions';
-import { loadConsoleOpts } from '../../telemetry/Actions.js';
-import './NotificationOverrides.css';
-import semverCheck from '../../helpers/semver';
+import {
+  loadServerVersion,
+  fetchServerConfig,
+  loadLatestServerVersion,
+  featureCompatibilityInit,
+} from './Actions';
+import { loadConsoleTelemetryOpts } from '../../telemetry/Actions.js';
 import {
   loadInconsistentObjects,
   redirectToMetadataStatus,
 } from '../Services/Metadata/Actions';
-
-const semver = require('semver');
 
 import {
   getLoveConsentState,
   setLoveConsentState,
 } from './loveConsentLocalStorage';
 
+import { versionGT, FT_JWT_ANALYZER } from '../../helpers/versionUtils';
+
 class Main extends React.Component {
   constructor(props) {
     super(props);
+
     this.state = {
-      showBannerNotification: false,
-      showEvents: false,
-      showSchemaStitch: false,
+      showUpdateNotification: false,
+      loveConsentState: getLoveConsentState(),
     };
 
-    this.state.loveConsentState = getLoveConsentState();
     this.handleBodyClick = this.handleBodyClick.bind(this);
   }
+
   componentDidMount() {
     const { dispatch } = this.props;
+
     document
       .querySelector('body')
       .addEventListener('click', this.handleBodyClick);
+
     dispatch(loadServerVersion()).then(() => {
-      dispatch(loadInconsistentObjects(this.props.serverVersion)).then(() => {
+      dispatch(featureCompatibilityInit());
+
+      dispatch(loadInconsistentObjects()).then(() => {
         this.handleMetadataRedirect();
       });
-      dispatch(loadConsoleOpts());
-      dispatch(checkServerUpdates()).then(() => {
-        let isUpdateAvailable = false;
-        try {
-          isUpdateAvailable = semver.gt(
-            this.props.latestServerVersion,
-            this.props.serverVersion
-          );
-          const isClosedBefore = window.localStorage.getItem(
-            this.props.latestServerVersion + '_BANNER_NOTIFICATION_CLOSED'
-          );
-          if (isClosedBefore === 'true') {
-            isUpdateAvailable = false;
-            this.setState({ showBannerNotification: false });
-          } else {
-            this.setState({
-              showBannerNotification: isUpdateAvailable,
-            });
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      });
-      this.checkEventsTab().then(() => {
-        this.checkSchemaStitch();
+
+      dispatch(loadConsoleTelemetryOpts());
+
+      dispatch(loadLatestServerVersion()).then(() => {
+        this.setShowUpdateNotification();
       });
     });
   }
 
-  checkSchemaStitch() {
-    const showSchemaStitch = semverCheck(
-      'schemaStitching',
-      this.props.serverVersion
-    );
-    if (showSchemaStitch) {
-      this.setState({ showSchemaStitch: true });
+  componentWillReceiveProps(nextProps) {
+    const {
+      [FT_JWT_ANALYZER]: currJwtAnalyzerCompatibility,
+    } = this.props.featuresCompatibility;
+    const {
+      [FT_JWT_ANALYZER]: nextJwtAnalyzerCompatibility,
+    } = nextProps.featuresCompatibility;
+
+    if (
+      currJwtAnalyzerCompatibility !== nextJwtAnalyzerCompatibility &&
+      nextJwtAnalyzerCompatibility
+    ) {
+      this.fetchServerConfig();
     }
-    return Promise.resolve();
   }
-  checkEventsTab() {
-    const showEvents = semverCheck('eventsTab', this.props.serverVersion);
-    if (showEvents) {
-      this.setState({ showEvents: true });
+
+  setShowUpdateNotification() {
+    const { latestServerVersion, serverVersion } = this.props;
+
+    try {
+      const isClosedBefore = window.localStorage.getItem(
+        latestServerVersion + '_BANNER_NOTIFICATION_CLOSED'
+      );
+
+      if (isClosedBefore !== 'true') {
+        const isUpdateAvailable = versionGT(latestServerVersion, serverVersion);
+
+        if (isUpdateAvailable) {
+          this.setState({
+            showUpdateNotification: true,
+          });
+        }
+      }
+    } catch (e) {
+      console.error(e);
     }
-    return Promise.resolve();
   }
+
+  fetchServerConfig() {
+    const { dispatch } = this.props;
+
+    dispatch(fetchServerConfig());
+  }
+
   handleBodyClick(e) {
     const heartDropDownOpen = document.querySelectorAll(
       '#dropdown_wrapper.open'
@@ -100,14 +113,17 @@ class Main extends React.Component {
       document.getElementById('dropdown_wrapper').classList.remove('open');
     }
   }
+
   handleDropdownToggle() {
     document.getElementById('dropdown_wrapper').classList.toggle('open');
   }
+
   handleMetadataRedirect() {
     if (this.props.metadata.inconsistentObjects.length > 0) {
       this.props.dispatch(redirectToMetadataStatus());
     }
   }
+
   closeLoveIcon() {
     const s = {
       isDismissed: true,
@@ -117,13 +133,14 @@ class Main extends React.Component {
       loveConsentState: { ...getLoveConsentState() },
     });
   }
+
   closeUpdateBanner() {
     const { latestServerVersion } = this.props;
     window.localStorage.setItem(
       latestServerVersion + '_BANNER_NOTIFICATION_CLOSED',
       'true'
     );
-    this.setState({ showBannerNotification: false });
+    this.setState({ showUpdateNotification: false });
   }
 
   render() {
@@ -145,7 +162,8 @@ class Main extends React.Component {
     const github = require('./images/Github.svg');
     const discord = require('./images/Discord.svg');
     const mail = require('./images/mail.svg');
-    const docs = require('./images/logo.svg');
+    const docs = require('./images/docs-logo.svg');
+    const about = require('./images/console-logo.svg');
     const pixHeart = require('./images/pix-heart.svg');
 
     const currentLocation = location.pathname;
@@ -219,11 +237,11 @@ class Main extends React.Component {
       return adminSecretHtml;
     };
 
-    const getBannerNotification = () => {
-      let bannerNotificationHtml = null;
+    const getUpdateNotification = () => {
+      let updateNotificationHtml = null;
 
-      if (this.state.showBannerNotification) {
-        bannerNotificationHtml = (
+      if (this.state.showUpdateNotification) {
+        updateNotificationHtml = (
           <div>
             <div className={styles.phantom} />{' '}
             {/* phantom div to prevent overlapping of banner with content. */}
@@ -266,7 +284,7 @@ class Main extends React.Component {
           </div>
         );
       }
-      return bannerNotificationHtml;
+      return updateNotificationHtml;
     };
 
     const getLoveSection = () => {
@@ -335,9 +353,7 @@ class Main extends React.Component {
                     <div className={styles.socialIcon}>
                       <img
                         className="img img-responsive"
-                        src={
-                          'https://storage.googleapis.com/hasura-graphql-engine/console/assets/githubicon.png'
-                        }
+                        src={`${globals.assetsPath}/common/img/githubicon.png`}
                         alt={'GitHub'}
                       />
                     </div>
@@ -368,9 +384,7 @@ class Main extends React.Component {
                     <div className={styles.socialIcon}>
                       <img
                         className="img img-responsive"
-                        src={
-                          'https://storage.googleapis.com/hasura-graphql-engine/console/assets/twittericon.png'
-                        }
+                        src={`${globals.assetsPath}/common/img/twittericon.png`}
                         alt={'Twitter'}
                       />
                     </div>
@@ -397,68 +411,6 @@ class Main extends React.Component {
       }
 
       return helpDropdownPosStyle;
-    };
-
-    const getRemoteSchemaLink = () => {
-      let remoteSchemaLink = null;
-
-      if (this.state.showSchemaStitch) {
-        remoteSchemaLink = (
-          <OverlayTrigger placement="right" overlay={tooltip.customresolver}>
-            <li>
-              <Link
-                className={
-                  currentActiveBlock === 'remote-schemas'
-                    ? styles.navSideBarActive
-                    : ''
-                }
-                to={appPrefix + '/remote-schemas/manage/schemas'}
-              >
-                <div className={styles.iconCenter}>
-                  <i
-                    title="Remote Schemas"
-                    className="fa fa-plug"
-                    aria-hidden="true"
-                  />
-                </div>
-                <p>Remote Schemas</p>
-              </Link>
-            </li>
-          </OverlayTrigger>
-        );
-      }
-
-      return remoteSchemaLink;
-    };
-
-    const getEventsLink = () => {
-      let eventsLink = null;
-
-      if (this.state.showEvents) {
-        eventsLink = (
-          <OverlayTrigger placement="right" overlay={tooltip.events}>
-            <li>
-              <Link
-                className={
-                  currentActiveBlock === 'events' ? styles.navSideBarActive : ''
-                }
-                to={appPrefix + '/events/manage/triggers'}
-              >
-                <div className={styles.iconCenter}>
-                  <i
-                    title="Events"
-                    className="fa fa-cloud"
-                    aria-hidden="true"
-                  />
-                </div>
-                <p>Events</p>
-              </Link>
-            </li>
-          </OverlayTrigger>
-        );
-      }
-
-      return eventsLink;
     };
 
     return (
@@ -525,10 +477,51 @@ class Main extends React.Component {
                     </Link>
                   </li>
                 </OverlayTrigger>
-
-                {getRemoteSchemaLink()}
-
-                {getEventsLink()}
+                <OverlayTrigger
+                  placement="right"
+                  overlay={tooltip.remoteSchema}
+                >
+                  <li>
+                    <Link
+                      className={
+                        currentActiveBlock === 'remote-schemas'
+                          ? styles.navSideBarActive
+                          : ''
+                      }
+                      to={appPrefix + '/remote-schemas/manage/schemas'}
+                    >
+                      <div className={styles.iconCenter}>
+                        <i
+                          title="Remote Schemas"
+                          className="fa fa-plug"
+                          aria-hidden="true"
+                        />
+                      </div>
+                      <p>Remote Schemas</p>
+                    </Link>
+                  </li>
+                </OverlayTrigger>
+                <OverlayTrigger placement="right" overlay={tooltip.events}>
+                  <li>
+                    <Link
+                      className={
+                        currentActiveBlock === 'events'
+                          ? styles.navSideBarActive
+                          : ''
+                      }
+                      to={appPrefix + '/events/manage/triggers'}
+                    >
+                      <div className={styles.iconCenter}>
+                        <i
+                          title="Events"
+                          className="fa fa-cloud"
+                          aria-hidden="true"
+                        />
+                      </div>
+                      <p>Events</p>
+                    </Link>
+                  </li>
+                </OverlayTrigger>
               </ul>
             </div>
             <div id="dropdown_wrapper" className={styles.clusterInfoWrapper}>
@@ -612,6 +605,16 @@ class Main extends React.Component {
                         <span>Head to docs</span>
                       </a>
                     </li>
+                    <li className={'dropdown-item'}>
+                      <Link to="/about">
+                        <img
+                          className={'img-responsive'}
+                          src={about}
+                          alt={'about'}
+                        />
+                        <span>About</span>
+                      </Link>
+                    </li>
                   </div>
                 </ul>
               </div>
@@ -624,7 +627,7 @@ class Main extends React.Component {
             {getMainContent()}
           </div>
 
-          {getBannerNotification()}
+          {getUpdateNotification()}
         </div>
       </div>
     );

@@ -19,7 +19,7 @@ import qualified Data.Yaml.TH                as Y
 import qualified Database.PG.Query           as Q
 
 curCatalogVer :: T.Text
-curCatalogVer = "13"
+curCatalogVer = "19"
 
 migrateMetadata
   :: ( MonadTx m
@@ -91,6 +91,16 @@ setAsSystemDefinedFor9 =
             SET is_system_defined = 'true'
             WHERE table_schema = 'hdb_catalog'
              AND  table_name = 'hdb_version';
+           |]
+
+setAsSystemDefinedFor16 :: MonadTx m => m ()
+setAsSystemDefinedFor16 =
+  liftTx $ Q.catchE defaultTxErrorHandler $
+  Q.multiQ [Q.sql|
+            UPDATE hdb_catalog.hdb_table
+            SET is_system_defined = 'true'
+            WHERE table_schema = 'hdb_catalog'
+             AND  table_name = 'hdb_query_collection';
            |]
 
 getCatalogVersion
@@ -272,6 +282,68 @@ from12To13 = liftTx $ do
     $(Q.sqlFromFile "src-rsr/migrate_from_12_to_13.sql")
   return ()
 
+from13To14 :: (MonadTx m) => m ()
+from13To14 = liftTx $ do
+  -- Migrate database
+  Q.Discard () <- Q.multiQE defaultTxErrorHandler
+    $(Q.sqlFromFile "src-rsr/migrate_from_13_to_14.sql")
+  return ()
+
+from14To15 :: (MonadTx m) => m ()
+from14To15 = liftTx $ do
+  -- Migrate database
+  Q.Discard () <- Q.multiQE defaultTxErrorHandler
+    $(Q.sqlFromFile "src-rsr/migrate_from_14_to_15.sql")
+  return ()
+
+from15To16
+  :: ( MonadTx m
+     , HasHttpManager m
+     , HasSQLGenCtx m
+     , CacheRWM m
+     , UserInfoM m
+     , MonadIO m
+     )
+  => m ()
+from15To16 = do
+  -- Migrate database
+  Q.Discard () <- liftTx $ Q.multiQE defaultTxErrorHandler
+    $(Q.sqlFromFile "src-rsr/migrate_from_15_to_16.sql")
+  -- Migrate metadata
+  migrateMetadata False migrateMetadataFrom13
+  -- Set as system defined
+  setAsSystemDefinedFor16
+  where
+    migrateMetadataFrom13 =
+      $(unTypeQ (Y.decodeFile "src-rsr/migrate_metadata_from_15_to_16.yaml" :: Q (TExp RQLQuery)))
+
+from16To17 :: MonadTx m => m ()
+from16To17 =
+  liftTx $ Q.catchE defaultTxErrorHandler $
+  Q.multiQ [Q.sql|
+            UPDATE hdb_catalog.hdb_table
+            SET is_system_defined = 'true'
+            WHERE table_schema = 'hdb_catalog'
+             AND  table_name = 'hdb_allowlist';
+           |]
+
+from17To18 :: MonadTx m => m ()
+from17To18 =
+  liftTx $ Q.catchE defaultTxErrorHandler $
+  Q.multiQ [Q.sql|
+            DELETE FROM hdb_catalog.hdb_table
+            WHERE table_schema = 'hdb_catalog'
+              AND table_name = 'hdb_query_template';
+            DROP table hdb_catalog.hdb_query_template
+           |]
+
+from18To19 :: MonadTx m => m ()
+from18To19 = do
+  -- Migrate database
+  Q.Discard () <- liftTx $ Q.multiQE defaultTxErrorHandler
+    $(Q.sqlFromFile "src-rsr/migrate_from_18_to_19.sql")
+  return ()
+
 migrateCatalog
   :: ( MonadTx m
      , CacheRWM m
@@ -284,7 +356,8 @@ migrateCatalog
 migrateCatalog migrationTime = do
   preVer <- getCatalogVersion
   if | preVer == curCatalogVer ->
-         return "already at the latest version"
+         return $ "already at the latest version. current version: "
+                   <> show curCatalogVer
      | preVer == "0.8" -> from08ToCurrent
      | preVer == "1"   -> from1ToCurrent
      | preVer == "2"   -> from2ToCurrent
@@ -295,13 +368,31 @@ migrateCatalog migrationTime = do
      | preVer == "7"   -> from7ToCurrent
      | preVer == "8"   -> from8ToCurrent
      | preVer == "9"   -> from9ToCurrent
-     | preVer == "10"   -> from10ToCurrent
-     | preVer == "11"   -> from11ToCurrent
-     | preVer == "12"   -> from12ToCurrent
+     | preVer == "10"  -> from10ToCurrent
+     | preVer == "11"  -> from11ToCurrent
+     | preVer == "12"  -> from12ToCurrent
+     | preVer == "13"  -> from13ToCurrent
+     | preVer == "14"  -> from14ToCurrent
+     | preVer == "15"  -> from15ToCurrent
+     | preVer == "16"  -> from16ToCurrent
+     | preVer == "17"  -> from17ToCurrent
+     | preVer == "18"  -> from18ToCurrent
      | otherwise -> throw400 NotSupported $
                     "unsupported version : " <> preVer
   where
-    from12ToCurrent = from12To13 >> postMigrate
+    from18ToCurrent = from18To19 >> postMigrate
+
+    from17ToCurrent = from17To18 >> from18ToCurrent
+
+    from16ToCurrent = from16To17 >> from17ToCurrent
+
+    from15ToCurrent = from15To16 >> from16ToCurrent
+
+    from14ToCurrent = from14To15 >> from15ToCurrent
+
+    from13ToCurrent = from13To14 >> from14ToCurrent
+
+    from12ToCurrent = from12To13 >> from13ToCurrent
 
     from11ToCurrent = from11To12 >> from12ToCurrent
 

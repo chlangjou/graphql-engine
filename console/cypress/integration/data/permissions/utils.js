@@ -30,7 +30,7 @@ export const permNoCheck = (tableName, query, first) => {
   // set filter { }
   // Toggle all columns in case
   if (query === 'select' || query === 'update') {
-    cy.get(getElementFromAlias('toggle-col-permission')).click();
+    // cy.get(getElementFromAlias('toggle-col-permission')).click();
     cy.get(getElementFromAlias('toggle-all-col-btn')).click();
   }
   if (query === 'insert' || query === 'update') {
@@ -133,7 +133,7 @@ export const createView = (viewName, tableName) => {
   const reqBody = {
     type: 'run_sql',
     args: {
-      sql: `create view ${viewName} as select * from ${tableName}`,
+      sql: `create view "${viewName}" as select * from "${tableName}"`,
     },
   };
   cy.window().then(win => {

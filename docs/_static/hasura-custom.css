@@ -104,6 +104,10 @@ ul {
   font-size: 20px !important;
 }
 
+[role="main"] h4 {
+  font-size: 18px !important;
+}
+
 #docs-content,
 #docs-header {
   font-size: 16px !important;
@@ -159,6 +163,7 @@ ul {
 
 #docs-content .docutils {
   color: #6f6f6f;
+  word-break: break-word;
 }
 
 #docs-content .docutils.literal {
@@ -175,6 +180,10 @@ ul {
 
 #docs-content .figure img {
   width:  100%;
+}
+
+#docs-content table caption {
+  position: relative;
 }
 
 /*** random overrides ***/

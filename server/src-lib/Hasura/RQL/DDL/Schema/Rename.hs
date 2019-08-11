@@ -7,10 +7,10 @@ where
 
 import           Control.Arrow                      ((***))
 import           Hasura.Prelude
+import qualified Hasura.RQL.DDL.EventTrigger        as DS
 import           Hasura.RQL.DDL.Permission
 import           Hasura.RQL.DDL.Permission.Internal
 import           Hasura.RQL.DDL.Relationship.Types
-import qualified Hasura.RQL.DDL.EventTrigger as DS
 import           Hasura.RQL.Types
 import           Hasura.SQL.Types
 
@@ -36,14 +36,9 @@ data RenameField
 type RenameTable = (QualifiedTable, QualifiedTable)
 
 otherDeps :: QErrM m => Text -> SchemaObjId -> m ()
-otherDeps errMsg = \case
-  SOQTemplate name ->
-    throw400 NotSupported $
-      "found dependant query template " <> name <<> "; " <> errMsg
-  d                ->
-      throw500 $ "unexpected dependancy "
-        <> reportSchemaObj d <> "; " <> errMsg
-
+otherDeps errMsg d =
+  throw500 $ "unexpected dependancy "
+    <> reportSchemaObj d <> "; " <> errMsg
 
 renameTableInCatalog
   :: (MonadTx m, CacheRM m)
@@ -335,11 +330,12 @@ updateColInEventTriggerDef trigName rnCol = do
       SubscribeOpSpec
       (rewriteSubsCols trigTab cols)
       (rewriteSubsCols trigTab <$> payload)
-    rewriteTrigOpsDef trigTab (TriggerOpsDef ins upd del) =
+    rewriteTrigOpsDef trigTab (TriggerOpsDef ins upd del man) =
       TriggerOpsDef
       (rewriteOpSpec trigTab <$> ins)
       (rewriteOpSpec trigTab <$> upd)
       (rewriteOpSpec trigTab <$> del)
+      man
     rewriteEventTriggerConf trigTab etc =
       etc { etcDefinition =
             rewriteTrigOpsDef trigTab $ etcDefinition etc
